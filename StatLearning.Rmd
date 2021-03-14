@@ -1,0 +1,405 @@
+---
+title: "Statistical Learning"
+author: "Taylor Longmire"
+date: "3/14/2021"
+output: html_document
+---
+
+### Exploring the Data
+
+The dataset we are going to be looking at is the *reddit* dataset containing the frequency of posts in particular subreddits. The frequency is based off of how many of a user's top 100 posts are in that subreddit. The purpose of this analysis is to predict whether or not a reddit user is an extrovert based on how often they post in particular subreddits. 
+
+```{r load-packages-and-data, warning = FALSE, message = FALSE, echo = FALSE}
+library(tidyverse)
+library(tidymodels)
+library(knitr)
+library(lares)
+library(kableExtra)
+library(ggplot2)
+library(cowplot)
+library(GGally)
+reddit <- read_csv("reddit_data.csv")
+opts_chunk$set(echo = FALSE)
+```
+
+To determine which of the 599 available variables are most strongly correlated with the variable *extrovert_TRUE*, the $corr\_var$ function, taken from the $lares$ package, will be used to visualize the correlations between *extrovert_TRUE* and various predictor variables. The $corr\_var$ function will examine the correlation between each of the predictor variables with *extrovert_TRUE* and return the top 8 highest correlations, whether they be positive or negative correlations. Positive correlations will be shown in blue, while negative correlations will be shown in red. 
+
+```{r test correlation, message = FALSE, warning = FALSE}
+corr_var(reddit,
+  extrovert_TRUE,
+  top = 8 
+) 
+```
+
+The figure above displays the top 8 predictor variables that have the greatest correlation when placed against the variable *extrovert_TRUE*. As would be expected, among the top 8 predictors, 5 are subreddits for particular personality types. The top 8 predictors with the highest correlation to *extrovert_TRUE* are *post_ENFP*, *post_entp*, *post_estp*, *post_INTP*, *post_Overwatch_Memes*, *post_tipofmytongue*, *post_infp*, and *post_mbtimemes*. Thus, these 8 predictors will be used in the various models to be tested for predicting whether or not a person identifies as an extrovert. 
+
+Now, to further examine the relationship between our variables and our predictor, let us first fit a basic linear regression model, which predicts extroversion based on our 8 chosen predictors. In order to fit a linear regression model, we will transform our outcome variable into an indicator variable, for which 1 = extrovert and 0 = not extrovert. The purpose for fitting a linear model is to determine which predictors may not be meaningful to our model, and also to determine if a logistic model would result in a better fit. 
+
+```{r transform-data}
+reddit_new <- reddit
+reddit_new$extrovert <- ifelse(reddit_new$extrovert == "TRUE", 1, 0)
+```
+
+```{r lm-model}
+lm_spec <-
+  linear_reg() %>%
+  set_engine(engine = "lm")
+lm_fit <- fit(lm_spec,
+              extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_tipofmytongue + post_infp + post_mbtimemes,
+              data = reddit_new)
+tidy_model <- tidy(lm_fit, conf.int = TRUE)
+kable(tidy_model) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The above table shows the $\beta$ coefficients, standard error, test-statistic, and p-value for each of our predictors for a basic linear regression model. Predictors *post_tipofmytongue* and *post_mbtimemes* both have p-values greater than 0.05, which may suggest that they are not meaningful additions to our model. 
+
+```{r compare-models, warning = FALSE, message = FALSE}
+ggplot(data = reddit_new, aes(x = post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_tipofmytongue + post_infp + post_mbtimemes, y = extrovert)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
+  labs(title = "Predictors vs. Extrovert", x = "All Predictors", y = "Extrovert (1), Introvert (0)")
+ggplot(data = reddit_new, aes(x = post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp, y = extrovert)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
+  labs(title = "Predictors (with high p-value predictors removed) vs. Extrovert", x = "Predictors", y = "Extrovert (1), Introvert (0)")
+```
+
+The plots above compare the original model containing all 8 of our potentially meaningful predictors with the new model containing only 6 predictors, with *post_tipofmytongue* and *post_mbtimemes* removed. Two things can be concluded from these plots--one being that the model with *post_tipofmytongue* and *post_mbtimemes* removed appears to produce a stronger linear relationship between *extrovert* and our predictors. Further, it appears that the probability of resulting in "extrovert" or "introvert" stays between 0 and 1, thus a logistic regression model does not necessarily need to be considered. Thus, the models we will test for prediction will use the 6 predictors *post_ENFP*, *post_entp*, *post_estp*, *post_INTP*, *post_Overwatch_Memes*, and *post_infp*.
+
+Now, let's test to assure that our $\beta$ coefficients are actually estimable by assuring that our explanatory variables are not highly correlated. Referring to the plot below, it is evident that none of the variables being used in our model have a high correlation, and thus, we can be sure that our variables are independent. 
+
+```{r test-mutlicollinearity}
+my_vars <- c("post_ENFP", "post_entp", "post_estp", "post_INTP", "post_Overwatch_Memes", "post_infp")
+newdata <- reddit[my_vars]
+ggpairs(newdata, lower = list(combo = wrap(ggally_facethist, binwidth = 0.5)), progress = FALSE)
+```
+
+To further ensure that our $\beta$ coefficients are estimable, let us ensure that our design matrix is invertible. By fitting a linear regression model using our 6 predictors, and then calculating the determinant of the design matrix of that model, we can ensure invertibility. As our calculation has shown, the determinant is not equal to 0. Thus, we can confidently say that our $\beta$ coefficients are estimable. 
+
+```{r invertible-matrix}
+model <- lm(data = reddit_new, extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp)
+X <- model.matrix(model)
+det(t(X) %*% X)
+```
+
+Because we have determined that multicollinearity is not an issue, and neither is a non-invertible design matrix, we are not going to use ridge, lasso, or elastic net to fit our model. Instead, we are going to test two non-linear models using natural cubic splines and polynomials, tuning our parameters. Then, we will test three decision tree models using bagging, random forest, and boosting, tuning our parameters. 
+
+### Comparing Non-Linear Models
+
+```{r cv}
+set.seed(7)
+reddit_split <- initial_split(reddit_new, prop = 0.5)
+reddit_train <- training(reddit_split)
+reddit_test <- testing(reddit_split)
+reddit_cv <- vfold_cv(reddit_train, v = 10)
+```
+
+#### Natural Cubic Splines
+
+The first non-linear model we are going to test for prediction is a natural cubic splines model. To do this, we will first scale all of our predictors in order to ensure the relative weights of each predictor is normalized. Then, we will tune for degrees of freedom to determine the best parameter value for the model. We will tune this parameter by utilizing cross validation with 10 folds, testing degrees of freedom 1-15.
+
+```{r natural-splines}
+reddit_rec_ns <- reddit_new %>%
+  recipe(extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp) %>%
+  step_scale(all_predictors()) %>%
+  step_ns(post_ENFP, post_entp, post_estp, post_INTP, post_Overwatch_Memes, post_infp, deg_free = tune())
+```
+
+```{r tune_ns, message = FALSE}
+set.seed(7)
+grid <- expand_grid(deg_free = seq(1, 15, by = 1))
+
+tuning <- tune_grid(lm_spec,
+                     reddit_rec_ns,
+                     grid = grid,
+                     resamples = reddit_cv)
+```
+
+```{r tuning_ns}
+ns_table <- tuning %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  arrange(mean)
+kable(ns_table) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE for each of the degrees of freedom tested for the model, ordered from lowest RMSE to greatest. The table suggests that the best value for degrees of freedom for a natural cubic splines model is 1, 4, 5, 6, 3, or 2, which all have the same RMSE. Thus, for simplicity, we will use 1 as our degrees of freedom for the model. 
+
+```{r ns_recipe}
+ns_rec <- reddit_new %>%
+  recipe(extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp) %>%
+  step_scale(all_predictors()) %>%
+  step_ns(post_ENFP, post_entp, post_estp, post_INTP, post_Overwatch_Memes, post_infp, deg_free = 1)
+
+ns_fit <- last_fit(lm_spec,
+                ns_rec,
+                split = reddit_split)
+final_ns_model <- ns_fit %>%
+  collect_metrics()
+
+kable(final_ns_model) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE and R-squared for the final model fit using natural cubic splines. The model results in a RMSE of *0.597* and a R-squared of *0.114*. 
+
+#### Polynomial
+
+The next non-linear model we are going to test for prediction is a polynomial model. To do this, we will first scale all of our predictors in order to ensure the relative weights of each predictor is normalized. Then, we will tune for degree of our polynomial to determine the best parameter value for the model. We will tune this parameter by utilizing cross validation with 10 folds, testing degrees 1-15.
+
+```{r polynomial}
+reddit_rec_poly <- reddit_new %>%
+  recipe(extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp) %>%
+  step_scale(all_predictors()) %>%
+  step_poly(post_ENFP, post_entp, post_estp, post_INTP, post_Overwatch_Memes, post_infp, degree = tune())
+```
+
+```{r tune_poly, message = FALSE}
+set.seed(7)
+grid2 <- expand_grid(degree = seq(1, 15, by = 1))
+
+tuning2 <- tune_grid(lm_spec,
+                     reddit_rec_poly,
+                     grid = grid2,
+                     resamples = reddit_cv)
+```
+
+```{r tuning_poly}
+poly_table <- tuning2 %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  arrange(mean)
+kable(poly_table) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE for each of the degrees tested for the model (for which only degrees 1 and 2 were tested), ordered from lowest RMSE to greatest. The table suggests that the best value for degrees for a polynomial model is 1, which has the lowest RMSE. Thus, we will use 1 as our degrees of freedom for the model, which simply results in a normal linear regression. 
+
+```{r poly_recipe}
+poly_rec <- reddit_new %>%
+  recipe(extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp) %>%
+  step_scale(all_predictors()) %>%
+  step_poly(post_ENFP, post_entp, post_estp, post_INTP, post_Overwatch_Memes, post_infp, degree = 1)
+
+poly_fit <- last_fit(lm_spec,
+                poly_rec,
+                split = reddit_split)
+final_poly_model <- poly_fit %>%
+  collect_metrics()
+
+kable(final_poly_model) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE and R-squared for the final model fit using polynomials. The model results in a RMSE of *0.597* and a R-squared of *0.114*. 
+
+### Comparing Decision-Tree Models
+
+#### Bagging
+
+The first decision-tree model we are going to test for prediction is a bagging model. To do this, we will first create a new model specification with a mtry value of 6 (equal to the number of predictors in the model). Then, we will tune for number of trees to determine the best parameter value for the model. We will tune this parameter by utilizing cross validation with 10 folds, testing trees 10, 25, 50, 100, 200, and 300. 
+
+```{r bagging}
+bag_spec <- rand_forest(
+  mode = "regression",
+  mtry = 6,
+  trees = tune()
+) %>%
+  set_engine("ranger")
+```
+
+```{r tune_bag, message = FALSE}
+set.seed(7)
+grid3 <- expand_grid(trees = c(10, 25, 50, 100, 200, 300))
+
+tuning_bag <- tune_grid(bag_spec,
+                     extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp,
+                     grid = grid3,
+                     resamples = reddit_cv)
+```
+
+```{r tuning-bag}
+data_bag <- tuning_bag %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  arrange(mean)
+kable(data_bag) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE for each of the number of trees tested for the model, ordered from lowest RMSE to greatest. The table suggests that the best value for number of trees for a bagged model is 50, which has the lowest RMSE. Thus, we will use 50 as our number of trees for the model.
+
+```{r bag-model}
+final_bag_spec <- rand_forest(
+  mode = "regression",
+  mtry = 6,
+  trees = 50
+) %>%
+  set_engine("ranger")
+
+set.seed(7)
+
+final_bag_model <- (last_fit(final_bag_spec,
+           extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp,
+           split = reddit_split))[[3]][[1]]
+
+kable(final_bag_model) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE and R-squared for the final model fit using bagging. The model results in a RMSE of *0.417* and a R-squared of *0.203*. 
+
+#### Random Forest
+
+The next decision-tree model we are going to test for prediction is a random forest model. To do this, we will first create a new model specification with a mtry value of $\sqrt{6} \approx 2$, where 6 is the number of predictors in the model. Then, we will tune for number of trees to determine the best parameter value for the model. We will tune this parameter by utilizing cross validation with 10 folds, testing trees 10, 25, 50, 100, 200, and 300. 
+
+```{r rand-forest}
+rf_spec <- rand_forest(
+  mode = "regression",
+  mtry = 2,
+  trees = tune()
+) %>%
+  set_engine("ranger")
+```
+
+```{r tune_rf, message = FALSE}
+set.seed(7)
+grid4 <- expand_grid(trees = c(10, 25, 50, 100, 200, 300))
+
+tuning_rf <- tune_grid(rf_spec,
+                     extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp,
+                     grid = grid4,
+                     resamples = reddit_cv)
+```
+
+```{r tuning-rf}
+data_rf <- tuning_rf %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  arrange(mean)
+kable(data_rf) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE for each of the number of trees tested for the model, ordered from lowest RMSE to greatest. The table suggests that the best value for number of trees for a random forest model is 10, which has the lowest RMSE. Thus, we will use 10 as our number of trees for the model.
+
+```{r rf-model}
+final_rf_spec <- rand_forest(
+  mode = "regression",
+  mtry = 2,
+  trees = 10
+) %>%
+  set_engine("ranger")
+
+set.seed(7)
+
+final_rf_model <- (last_fit(final_rf_spec,
+           extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp,
+           split = reddit_split))[[3]][[1]]
+
+kable(final_rf_model) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE and R-squared for the final model fit using random forest. The model results in a RMSE of *0.415* and a R-squared of *0.189*. 
+
+#### Boosting
+
+The final decision-tree model we are going to test for prediction is a boosted model. To do this, we will first create a new model specification with a $tree\_depth$ of 1 and a $learn\_rate$ of 0.1. Then, we will tune for number of trees to determine the best parameter value for the model. We will tune this parameter by utilizing cross validation with 10 folds, testing trees 10, 25, 50, 100, 200, and 300.
+
+```{r boosting}
+boost_spec <- boost_tree(
+  mode = "regression",
+  tree_depth = 1,
+  learn_rate = 0.1,
+  trees = tune()
+) %>%
+  set_engine("xgboost")
+```
+
+```{r tune-boost, message = FALSE}
+set.seed(7)
+grid5 <- expand_grid(trees = c(10, 25, 50, 100, 200, 300))
+
+tuning_boost <- tune_grid(boost_spec,
+                     extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp,
+                     grid = grid5,
+                     resamples = reddit_cv)
+```
+
+```{r tuning-boost}
+data_boost <- tuning_boost %>%
+  collect_metrics() %>%
+  filter(.metric == "rmse") %>%
+  arrange(mean)
+kable(data_boost) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE for each of the number of trees tested for the model, ordered from lowest RMSE to greatest. The table suggests that the best value for number of trees for a boosted model is 100, which has the lowest RMSE. Thus, we will use 100 as our number of trees for the model.
+
+```{r boost-model}
+final_boost_spec <- boost_tree(
+  mode = "regression",
+  tree_depth = 1,
+  learn_rate = 0.1,
+  trees = 100
+) %>%
+  set_engine("xgboost")
+
+set.seed(7)
+
+final_boost_model <- (last_fit(final_boost_spec,
+           extrovert ~ post_ENFP + post_entp + post_estp + post_INTP + post_Overwatch_Memes + post_infp,
+           split = reddit_split))[[3]][[1]]
+
+kable(final_boost_model) %>%
+  kable_styling(latex_options = "striped")
+```
+
+The table above displays the RMSE and R-squared for the final model fit using boosting. The model results in a RMSE of *0.415* and a R-squared of *0.183*. 
+
+### Final Comparison
+
+The table and plot below compare the RMSE and R-squared values produced by the various models tested using cross-validation and tuning methods. As is evident from both the table and plot, the non-linear models result in higher RMSE values, as well as lower R-squared values, making them the least preferred methods for prediction. Although all three of the decision-tree models tested are similar in their RMSE and R-squared values, it is clear that the highest R-squared value results from a bagged model. Although the bagged model has a slightly higher RMSE compared to the random forest and boosted model, the rather significant difference in R-squared suggests that the bagged model is the best at predicting whether or not a person is an extrovert based on the subreddit posts they make on reddit. 
+
+```{r final-comparison}
+tex_tbl <- data.frame(
+  Model = c("Natural Cubic Splines", "Polynomial", "Bagged", "Random Forest", "Boosted"),
+  RSQ = c(0.114, 0.114, 0.203, 0.189, 0.183),
+  RMSE = c(0.597, 0.597, 0.417, 0.415, 0.415)
+)
+
+kable(tex_tbl) %>%
+  kable_styling(latex_options = "striped")
+```
+
+```{r data.frame}
+df <- data.frame(
+  Model = c(1, 2, 3, 4, 5),
+  RSQ = c(0.114, 0.114, 0.203, 0.189, 0.183),
+  RMSE = c(0.597, 0.597, 0.417, 0.415, 0.415)
+)
+ggplot() +
+  geom_point(data = df, aes(ordered(x = Model), y = RMSE)) + 
+  geom_line(data = df, aes(x = Model, y = RMSE, color = "RMSE")) +
+  geom_point(data = df, aes(x = Model, y = RSQ)) + 
+  geom_line(data = df, aes(x = Model, y = RSQ, color = "RSQ")) +
+  scale_x_discrete(breaks = 1:5, labels=c("NCS","Poly","Bag", "RF", "Boost")) +
+  labs(title = "RMSE and RSQ for All Models", x = "Model Type", y = "Metrics", colour = "Metric Type") 
+```
+
+### Conclusion
+
+Before testing various models for prediction, the reddit dataset was examined to determine which predictors were likely to be best at prediction. Due to high correlation and low p-values for the predictors *post_ENFP*, *post_entp*, *post_estp*, *post_INTP*, *post_Overwatch_Memes*, and *post_infp*, these were chosen to be included in the model. Then, in order to narrow down the models to be tested on the data, the dataset was examined to test for multicollinearity and tested to ensure the design matrix was invertible. Once the data passed both of these tests, ridge regression, lasso regression, and elastic net regression were ruled out as being helpful models. Thus, two non-linear models were tested: natural cubic splines and polynomial; and three decision-tree models were tested: bagging, random forest, and boosting. 
+
+After using the cross-validation approach on each of the five models, and tuning various parameters to find the best model for each method, it was determined that the model with the lowest RMSE and highest R-squared values, and thus the best model for prediction, was the bagged model. 
+
+Thus, the best model for predicting whether or not a person is an extrovert based on which subreddits they post on is a model which utilizes bagging. 
+
+### Appendix
+
+```{r ref.label = knitr::all_labels(), echo = TRUE, eval = FALSE}
+```
