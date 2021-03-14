@@ -1,0 +1,278 @@
+---
+title: "Logistic Regression with Multiple Predictors"
+author: "Taylor Longmire"
+date: "3/14/2021"
+output: html_document
+---
+
+# Another Look at Age
+
+```{r read-data, message = FALSE, warning = FALSE, echo = FALSE}
+library(readr)
+Titanic <- read.csv("Titanic.csv")
+Titanic <- na.omit(Titanic)
+library(ggplot2)
+```
+
+```{r plot1, echo = FALSE}
+bins = seq(from = 0, to = max(Titanic$Age), by = 5)
+
+logodds <- rep(0, length(bins)-1)
+
+for(i in 1:(length(bins)-1)) {
+  inbin = which( Titanic$Age >= bins[i] & Titanic$Age <= bins[i+1])
+  count <- sum(Titanic$Survived[inbin]==1)
+  probs <- count/length(inbin)
+  holder <- log(probs/(1-probs))
+  logodds[i] <-ifelse(holder=="Inf" | holder=="-Inf", -1 , holder)
+}
+
+ggplot(data.frame(bins[-1]), aes(x = bins[-1], y = logodds)) + 
+  geom_point() + 
+  labs(x = "Age", y = "Log Odds of Survival", 
+       title = "Figure 1: Empirical Logit Plot")
+```
+
+## Question 1
+
+*Add a regression line to the plot and add appropriate axis labels and title the figure Figure 2: Using a Linear Relationship.*
+
+```{r plot2, echo = FALSE}
+ggplot(data.frame(bins[-1]), aes(x = bins[-1], y = logodds)) + 
+  geom_point() + 
+  stat_smooth(method = "lm", formula = y ~ x, size = 1) +
+  labs(x = "Age", y = "Log Odds of Survival", 
+       title = "Figure 2: Using a Linear Relationship")
+```
+
+## Question 2
+
+*What order polynomial do you think might be appropriate?*
+
+Based on the empirical logit plot, it seems that either a 3rd or 4th order polynomial might be the most appropriate given the model. If you consider the single point around age 45 to be a change in direction, then a 4th order polynomial would be the most appropriate. However, since that change is so slight, it may be better to disregard that as a change in direction and settle on a 3rd order polynomial. The graphs below will help to determine which of the two is better, but based solely on the empirical logit plot above and the changes in direction, we will first consider a 4th order polynomial to be the most appropriate. 
+
+## Second Order Polynomial Check
+
+```{r second-order, echo = FALSE}
+ggplot(data.frame(bins[-1]), aes(x = bins[-1], y = logodds)) + 
+  geom_point() + 
+  stat_smooth(method = "lm", formula = y ~ poly(x,2), size = 1) +
+  labs(x = "Age", y = "Log Odds of Survival", 
+       title = "Figure 3: Using a Second Order Polynomial")
+```
+
+## Question 3
+
+*Instead of a line, add a third order polynomial to the empirical logit plot. Add appropriate axis labels and title the figure Figure 3: Using a Third Order Polynomial.*
+
+```{r third-order, echo = FALSE}
+ggplot(data.frame(bins[-1]), aes(x = bins[-1], y = logodds)) + 
+  geom_point() + 
+  stat_smooth(method = "lm", formula = y ~ poly(x,3), size = 1) +
+  labs(x = "Age", y = "Log Odds of Survival", 
+       title = "Figure 4: Using a Third Order Polynomial")
+```
+
+## Question 4
+
+*Instead of a third order, add a fourth order polynomial to the empirical logit plot. Add appropriate axis labels and title the figure Figure 4: Using a Fourth Order Polynomial.*
+
+```{r fourth-order, echo = FALSE}
+ggplot(data.frame(bins[-1]), aes(x = bins[-1], y = logodds)) + 
+  geom_point() + 
+  stat_smooth(method = "lm", formula = y ~ poly(x,4), size = 1) +
+  labs(x = "Age", y = "Log Odds of Survival", 
+       title = "Figure 5: Using a Fourth Order Polynomial")
+```
+
+## Question 5
+
+*Strictly based on the graphs, which model seems to be a better fit to the data - Model 1 (the linear), Model 2 (the second order polynomial), Model 3 (the third order polynomial), or Model 4 (the fourth order polynomial)?*
+
+Based on the graphs, it appears that Model 4, which uses a fourth order polynomial, fits the data the best. While Model 3, which uses a third order polynomial does fit the data relatively well, Model 4 has a tighter, even closer fit to the data. 
+
+# Using Metrics to Compare Models
+
+## Question 6
+
+*Do our four models all have the same number of beta terms, or do they have different numbers of beta terms? Based on that, do we want to use the drop-in-deviance or the AIC to compare the models?*
+
+The four models created above do not have the same number of $\beta$ terms. While they all have an intercept, Model 1 has 1 additional $\beta$ term, Model 2 has 2 additional $\beta$ terms, Model 3 has 3 additional $\beta$ terms, and Model 4 has 4 additional $\beta$ terms. Because our models have a different numbers of $\beta$ terms, we do not want to use the drop-in-deviance to compare the models. While drop-in-deviance does not account for the additional $\beta$ terms with a penalty, the AIC does. Thus, we should use the AIC to compare our models. 
+
+## Question 7
+
+*Fit all four models in R, and using your chosen metric, explain which model you would choose and why.*
+
+After fitting the models, we see that the AIC for Model 1 is 964.2284, the AIC for Model 2 is 963.812, the AIC for Model 3 is 956.6908, and the AIC for Model 4 is 954.9779. Based on this, the model which best fits the data is **Model 4**, due to it having the lowest AIC. 
+
+```{r compare-models, echo = FALSE, eval = FALSE}
+model1 <- glm(Survived ~ Age, data = Titanic, family = "binomial")
+model2 <- glm(Survived ~ Age + I(Age^2), data = Titanic, family = "binomial")
+model3 <- glm(Survived ~ Age + I(Age^2) + I(Age^3), 
+              data = Titanic, family = "binomial")
+model4 <- glm(Survived ~ Age + I(Age^2) + I(Age^3) + I(Age^4), 
+              data = Titanic, family = "binomial")
+
+AIC(model1)
+AIC(model2)
+AIC(model3)
+AIC(model4)
+```
+
+## Question 8
+
+*Using a significance level of .05, perform a nested likelihood ratio test to compare Model 3 and Model 4. Don't just show the output - write out your steps, and state your conclusion.*
+
+**Step 1**  
+\begin{center} $H_0$: Model 3 and Model 4 fit the data the same, and thus the larger model is not a better fit to the data than the smaller model. \end{center}
+\begin{center} $H_a$: Model 4, which is the larger model, is a better fit to the data. \end{center}
+
+**Step 2**  
+$$D_{Model3} = 948.6908, D_{Model4} = 944.9779$$
+$$k_{Model3} = 4, k_{Model4} = 5$$
+
+**Step 3**  
+$$G = 948.6908 - 944.9779 = 3.7129$$
+
+**Step 4**  
+\begin{center} If $H_0$ were true, $G \sim \chi^{2} (df = 1)$ \end{center}
+
+**Step 5**  
+\begin{center} p-value = $P(G\ge3.7129|H_0$ were true) = 0.0539935 \end{center}
+
+**Step 6**  
+There is not convincing evidence that Model 4, which is the fourth order polynomial model, is a better fit to the data than Model 3, which is the third order polynomial model.
+
+```{r calc3, echo = FALSE, eval = FALSE}
+deviance(model3)
+deviance(model4)
+948.6908-944.9779
+pchisq(3.7129, df = 1, lower.tail = FALSE)
+```
+
+## Question 9
+
+*Using the code BIC(model), state the BIC of Model 1 - Model 4. Which model does this metric suggest is a better fit to the data? Does this agree with the AIC?*
+
+After calculating the BIC for Model 1 through Model 4, we see that the BIC for Model 1 is 973.3702, the BIC for Model 2 is 977.5246, the BIC for Model 3 is 974.9743, and the BIC for Model 4 is 977.8323. Based on this, the model which best fits the data is **Model 1**, due to it having the lowest BIC. Out of just Model 3 and Model 4, the model which best fits the data is **Model 3** due to it having a lower BIC than Model 4. 
+
+```{r BIC, echo = FALSE, eval = FALSE}
+BIC(model1)
+BIC(model2)
+BIC(model3)
+BIC(model4)
+```
+
+## Question 10
+
+*Which model (Model 3 or Model 4) are you going to proceed with, and why?*
+
+After looking at the different graphs and comparing models using the AIC, nested likelihood ratio test, and the BIC, I would like to proceed with Model 3. Out of the three metrics used to compare the models, only 1 of them resulted in Model 4 being a better pick, while the other two resulted in Model 3 being the better pick. Then, looking back at the graphs, although Model 4 fits the data closer and tighter, there is not as much variance, and thus the bias is likely higher. Therefore, I would like to proceed with Model 3. 
+
+# Making Predicitions
+
+## Question 11
+
+*Suppose I tell you the model probabilities for a given person are 51% for survive and 49% for do not survive. Using a threshold of .5, the predicted value for this person is survive. What might be concerning about using only a predicted value? Explain.*
+
+Because the probability for survival versus the probability for not surviving is so close for this individual, a prediction is likely to fall into the wrong category. Although the probability for survival is slightly higher than the probability of not surviving, this prediction may not be correct due to a difference of only 2% between surviving and not surviving. 
+
+## Question 12
+
+*Suppose I tell you the model probabilities for a given person are 95% for survive and 5% for do not survive. Using a threshold of .5, the predicted value for this person is survive. Do you have the same concern with using only a predicted value as you did in the previous question? Explain.*
+
+Because the probability of survival versus the probability for not surviving is much further apart for this individual than the previous one, a prediction is likely to fall into the current category. Therefore, I would not have the same concern with using only a predicted value for this individual. 
+
+## Question 13
+
+*Using a threshold of .6, create a confusion matrix by using the code above. State your classification error rate, which is the percent of the predictions are incorrect.*
+
+```{r confusion-matrix, echo = FALSE}
+model3 <- glm(Survived ~ Age + I(Age^2) + I(Age^3), data = Titanic, family = "binomial")
+probabilities <- predict(model3, type = "response")
+predicted.Y <- ifelse(probabilities > 0.6, "1", "0")
+
+knitr::kable( table("Actual" = Titanic$Survived , "Predictions" = predicted.Y), 
+              col.names =c("0 = Did Not Survive", "1 = Survived"), 
+              caption = "Predicted (Rows) versus Actual (columns)")
+```
+
+Based on the table above, 438 of the predictions are correct, while 276 of the predictions are incorrect. Based on this, we can find the classification error rate by writing:
+$$\frac{276}{276+438} = \frac{276}{714} = 0.3866$$
+Thus, the classification error rate is **38.66%**.
+
+## Question 14
+
+*How many people did you predict would survive who in fact did not survive the disaster?*
+
+Based on the table from the previous question, we predicted that **263** people would survive who in fact did not survive. 
+
+# Considering Multiple Predictors
+
+## Question 15
+
+*Create a model called Model 5 designed to answer your client's question (the client who would like to know how age, sex, and passenger class was related to survival on the Titanic). Write out the logistic regression line.*
+
+The logistic regression line for Model 5, which contains the variables Age, Sex, and Pclass, is:
+$$log\left(\frac{\hat{\pi_i}}{1-\hat{\pi_i}}\right) = 3.777 - 0.037Age_i - 2.523SexMale_i - 1.310Pclass2_i - 2.581Pclass3_i$$
+
+```{r model5, echo = FALSE, eval = FALSE}
+Titanic$Pclass  <- as.factor(Titanic$Pclass)
+
+model5 <- glm(Survived ~ Age + Sex + Pclass, data = Titanic, family = "binomial")
+summary(model5)
+```
+
+## Question 16
+
+*Create a 98% confidence interval for the population parameters in the model you chose in the previous question.*
+
+We are 98% confident that the log odds of survival decreases by between **0.020 and 0.055** for every additional year of Age, holding other variables constant. 
+
+We are 98% confident that the log odds of survival decreases by between **2.052 and 3.019** when a passenger is male, holding other variables constant. 
+
+We are 98% confident that the log odds of survival decreases by between **0.673 and 1.969** when a passenger is in 2nd class, holding other variables constant. 
+
+We are 98% confident that the log odds of survival decreases by between **1.944 and 3.256** when a passenger is in 3rd class, holding other variables constant. 
+
+```{r conf-int, echo = FALSE, eval = FALSE, warning = FALSE, message = FALSE}
+confint(model5, level = .98)
+```
+
+## Question 17
+
+*Is this model a better fit to the data than the model with just age? Justify using a metric.*
+
+The model with just age, Model 1, has an AIC of 964.2284, while the model with age, sex, and passenger class, Model 5, has an AIC of 657.2831. Thus, this model, Model 5, is a better model than the model with just age, Model 1. 
+
+```{r aic, eval = FALSE, echo = FALSE}
+AIC(model1)
+AIC(model5)
+```
+
+## Question 18
+
+*Now, use an NLRT to answer the same question. This time, you don't have to go through all the steps. Just state your p-value and conclusion.*
+
+The p-value for the nested likelihood ratio test comparing the smaller model, Model 1, to the larger model, Model 5, is $< 2.2 \times 10^{-16}$. Thus, there is convincing evidence that the larger model is a better fit to the data than the smaller model. 
+
+```{r nlrt, echo = FALSE, eval = FALSE}
+anova(model1, model5, test = "LRT")
+```
+
+# Analysis
+
+## Question 19
+
+*Now, using terms a client who has very little experience with statistics would understand, what does the model tell us about the relationship between the predictors and survival? Write this in 2-3 sentences as though you were explaining to a friend who knows no stats!*
+
+The model predicting survival from age, sex, and passenger class indicates a generally negative relationship between survival and the variables of interest; meaning that generally the chance of survival decreases as the value of the variables increase. Specifically, holding other variables constant, we estimate that the odds of survival decrease by a multiplier of 0.9637 for every additional year in age of a passenger, we estimate that the odds of survival decrease by a multiplier of 0.0802 if a passenger is male rather than female, we estimate that the odds of survival decrease by a multiplier of 0.2699 if a passenger is in 2nd class, and we estimate that the odds of survival decrease by 0.0757 if a passenger is in 3rd class. In general, this tells us that younger females in first class had the highest chance of survival, while older males in 3rd class had the lowest chance of survival.
+
+```{r prob, echo = FALSE, eval = FALSE}
+exp((coef(model5)))
+```
+
+## Appendix
+
+```{r ref.label = knitr::all_labels(), echo = TRUE, eval = FALSE}
+```
