@@ -1,0 +1,161 @@
+---
+title: "Bootstrap"
+author: "Taylor Longmire"
+date: "3/14/2021"
+output: html_document
+---
+
+```{r load-data, echo = FALSE, warning = FALSE, message = FALSE}
+library(palmerpenguins)
+library(ggplot2)
+data("penguins")
+```
+
+# The Data
+
+### Question 1
+
+*How many levels does the species variable have? Based on this, should we use logistic regression, multinomial regression, or LSLR regression?*
+
+The species variable in the penguins data set has **3** levels, which include "Adelie", "Chinstrap", and "Gentoo". Because there are multiple levels in our response variable, we should use **multinomial regression**.
+
+```{r find-levels, echo = FALSE, eval = FALSE, warning = FALSE, message = FALSE}
+levels(penguins$species)
+```
+
+```{r fit-model, echo = FALSE, eval = FALSE, warning = FALSE, message = FALSE}
+library(nnet)
+m1 <- multinom(species ~ bill_length_mm, data = penguins)
+coefficients(m1)
+```
+
+### Question 2
+
+*What is the baseline level of species?*
+
+When you fit a multinomial model predicting species type based on bill length (mm), the baseline level of species is **"Adelie"**.
+
+### Question 3
+
+*What is the slope in the Chinstrap vs. Adelie regression line?*
+
+The slope in the Chinstrap vs. Adelie regression line is **1.293331**.
+
+### Question 4
+
+*Interpret the slope in the Chinstrap vs. Adelie regression line in terms of the log relative risk.*
+
+For every additional millimeter in bill length, we estimate that the log relative risk of a penguin belonging to the Chinstrap species, versus the Adelie species, increases by 1.293.  
+
+# Creating a Bootstrap Sample
+
+### Question 5
+
+*How many rows does our original sample have? How many rows should our bootstrap sample have?*  
+
+Our original sample has $n = 344$ rows, and we want to obtain a bootstrap sample with $n = 344$ rows by sampling with replacement from the original sample.
+
+```{r rows, eval = FALSE, echo = FALSE}
+nrow(penguins)
+```
+
+### Question 6
+
+*How would we change the code sample(1:5, 5, replace = TRUE) to reflect the n in our data?*
+
+To reflect the $n = 344$ in our data, we should change the above code to read **sample(1:344, 344, replace = TRUE)**.
+
+### Question 7
+
+*What code would you use to print out the 5th row of the penguin data set in R?*
+
+To extract the 5th row of the penguin data set, we should use the code **penguins[5,]**, which tells R to pull the 5th row and all columns from the penguin data set.
+
+```{r pull-data, eval = FALSE, echo = FALSE}
+penguins[5,]
+```
+
+### Question 8
+
+*What code would you use to print out rows 2-6 of the penguin data set in R?*
+
+To extract the rows 2-6 of the penguin data set, we should use the code **penguins[2:6,]**, which tells R to pull rows 2-6 and all columns from the penguin data set.
+
+```{r pull-data2, eval = FALSE, echo = FALSE}
+penguins[2:6,]
+```
+
+### Question 9
+
+*Using BootstrapSample as your data set, fit the same multinomial regression we did at the beginning of the lab. What is the slope in the Chinstrap vs. Adelie regression line? Is this the same value you got in Question 3?*
+
+After using the BootstrapSample as our data set for fitting a multinomial regression model, the slope for the Chinstrap vs. Adelie regression line is **1.340351**, which is not the same as the Chinstrap vs. Adelia regression line obtained in Question 3. 
+
+```{r bootstrap, eval = FALSE, echo = FALSE}
+set.seed(2021)
+ChosenRows <- sample(1:344, 344, replace = TRUE)
+BootstrapSample <- penguins[ ChosenRows, ]
+
+m2 <- multinom(species ~ bill_length_mm, data = BootstrapSample)
+coefficients(m2)
+```
+
+# The Bootstrap in R
+
+### Question 10
+
+*Create the sampling distribution using the code above. Is this distribution symmetric, skewed right, or skewed left?*
+
+After creating the sampling distribution, it is clear that the distribution below (Figure 1) is **skewed right**.
+
+```{r sample-dist, echo = FALSE, eval = FALSE}
+B <- 1000
+
+boot.m1 <- function(dataIn, indices, maxit=20){
+  data <- dataIn[indices,]
+  mod <- multinom(species ~ bill_length_mm,
+  data = data, trace = FALSE)
+  coefficients(mod)
+}
+
+library(boot)
+out.boot <- boot(penguins, boot.m1, B)
+
+ggplot() +
+  geom_histogram(aes(x = out.boot$t[,3]), color = "white", bins = 45) +
+  labs(x = "Sample Statistics: Beta1(C)", y = " ", title = "Figure 1: Beta 1 C")
+```
+
+### Question 11
+
+*Create and interpret a 95% bootstrap confidence interval for the slope in the Chinstrap vs. Adelie regression line.*
+
+We are 95% confident that for every one millimeter increase in bill length, we predict the average log relative risk of a penguin belonging to the species Chinstrap versus the species Adelie increases between **1.033 and 1.858**.
+
+```{r ci, echo = FALSE, eval = FALSE}
+boot.ci(boot.out = out.boot,conf = .95,type = "perc",index = 3)
+```
+
+### Question 12
+
+*Take a look at Analysis Exercise 6 Question 8. Adapt the code that is there to build a 95% bootstrap confidence interval for all the parameters in the regression model. You do not need to interpret these intervals*
+
+The 95% bootstrap confidence intervals for all the parameters in the regression model are:  
+
+\begin{table}[!h]
+\begin{tabular}{l|l|l|l|l}
+       & {[},1{]}  & {[},2{]}  & {[},3{]} & {[},4{]}  \\
+2.5\%  & -80.73261 & -72.20557 & 1.033555 & 0.9274244 \\
+97.5\% & -45.96135 & -40.40373 & 1.842774 & 1.6843650 \\
+       &           &           &          &          
+\end{tabular}
+\end{table}
+
+```{r bsci, eval = FALSE, echo = FALSE}
+apply(out.boot$t, 2, function(x) c(quantile(probs = .025, x), quantile(probs =.975, x)))
+```
+
+## Appendix
+
+```{r ref.label = knitr::all_labels(), echo = TRUE, eval = FALSE}
+```
