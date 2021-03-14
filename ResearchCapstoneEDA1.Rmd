@@ -1,0 +1,319 @@
+---
+title: "Senior Research - EDA 1"
+author: "Taylor Longmire"
+date: "3/14/2021"
+output: html_document
+---
+
+## Load Data and Packages
+
+```{r import-data, warning = FALSE, message = FALSE}
+load(file = "22100-0002-Data.rda")
+library(ggplot2)
+library(tidyverse)
+library(lme4)
+```
+
+# Variables of Interest
+
+The three $Y$ variables that I first chose to examine were **HF042R8**, which corresponds to "Felt Depressed" (in the past week), **HF044R8**, which corresponds to "Hopeful About the Future" (in the past week), and **HF050R8**, which corresponds to "Lonely" (in the past week). These variables can be found on pages 135, 136, and 139 in the Codebook. 
+
+The $X$ variables we are interested in are **GEN_R**, which corresponds to "Generation" and **ID**, which corresponds to each individual. These variables can be found on pages 2 and 3 in the Codebook. 
+
+First, let's create a subset of the data with only these variables so that they are easier to deal with. 
+
+```{r subset}
+myVars <- c("HF042R8", "HF044R8", "HF050R8", "GEN_R", "ID")
+subset <- da22100.0002[myVars] 
+subset <- na.omit(subset)
+```
+
+# Initial Exploratory Data Analysis: Generation
+
+The table below shows counts for each generation in the data set.
+
+```{r table}
+knitr::kable(table(subset$GEN_R), col.names = c("Generation", "Count"))
+```
+
+## Felt Depressed
+
+The bar graph below shows how often individuals felt depressed by generation. It appears that most people felt depressed rarely, while the least people felt depressed most of the time. It also appears that in the lowest category of depression, generation 2 is the most prevalent, and in the highest category of depression, generation 3 is the most prevalent. 
+
+```{r plot-prop, warning = FALSE, message = FALSE}
+subset %>%
+filter(HF042R8 != '(9) Response not codable') %>% 
+ggplot(aes(x = HF042R8,  group = factor(GEN_R))) + 
+    geom_bar(aes(y = ..prop.., fill = factor(GEN_R)), stat = "count", position = position_dodge()) +
+  scale_x_discrete(labels = c("1", "2", "3", "4")) +
+  scale_fill_discrete(name = "Generation") +
+  labs(title = "Depression Level by Generation (Proportion)", 
+       x = "Depression Level (where 1 is rarely and 4 is most of the time)", 
+       y = "Count")
+```
+
+### Depression Model
+
+The model below uses least squares linear regresion to estimate that as we move up in generation by 1, "depression level" increases by about 0.02618. However, a very low r-squared value suggests that the model is not very reliable.
+
+```{r model1, warning = FALSE, message = FALSE}
+subset2 <- subset %>%
+filter(HF042R8 != '(9) Response not codable' & HF044R8 != '(9) Response not codable' & HF050R8 != '(9) Response not codable')
+
+model1 = lm(as.numeric(HF042R8) ~ as.factor(GEN_R), data = subset2)
+coef(model1)
+summary(model1)$r.squared
+AIC(model1)
+```
+
+Because we have more than one level in our response variable, depression level, a multinomial model may be more appropriate for this data. The multinomial model below shows a decrease in AIC of $3963.429 - 3428.231 = 535.198$, suggesting that the multinomial model is a better fit to the data. Our reference category for $Y$ is "(1) Rarely or None at All", thus, all $\beta_{ij}$ are being compared to rarely feeling depressed. 
+
+```{r model1-copy, warning = FALSE, message = FALSE}
+library(nnet)
+
+model1a = multinom(HF042R8 ~ as.factor(GEN_R), data = subset2)
+summary(model1a)
+AIC(model1a)
+```
+
+The plot below describes the relationship between each of our depression levels and each generation. While there appears to be generally similar results across each generation, there is a slight peak in generation 2 in the "rarely or none of the time" category, and a slight peak in generation 3 in the "most or all of the time" category--this aligns with what we saw in the bar graph. 
+
+```{r plot, warning = FALSE, message = FALSE}
+plot_probsMultinom <- function(xvar , model, xname ){
+  xpart <- data.frame("GEN_R" = c(unique(xvar)))
+  names(xpart) <- xname
+  pp.xpart <- cbind(xpart, predict(model, newdata = xpart, type = "probs", se = TRUE))
+  library(reshape2)
+  lpp <- melt(pp.xpart, id.vars = c(xname), value.name = "probability")
+  ggplot(lpp, aes(x = GEN_R, y = probability)) + geom_line(color="purple") + facet_grid(variable~., scales = "free")+theme(axis.text=element_text(size=14), axis.title=element_text(size=14), legend.title = element_text(size = 14), legend.text = element_text(size = 14))+ylim(0,1)
+}
+
+plot_probsMultinom(x = subset2$GEN_R, model = model1a, xname = "GEN_R")
+```
+
+## Hopeful About the Future
+
+The bar graph below shows how often individuals felt hepeful about the future by generation. It appears that most people felt hopeful most of the time, while the least people felt hopeful rarely. It also appears that in the lowest category of hopeful, generation 1 is the most prevalent, and in the highest category of hopeful, generation 4 is the most prevalent. 
+
+```{r plot3, warning = FALSE, message = FALSE}
+subset %>%
+filter(HF044R8 != '(9) Response not codable') %>% 
+ggplot(aes(x = HF044R8,  group = factor(GEN_R))) + 
+    geom_bar(aes(y = ..prop.., fill = factor(GEN_R)), stat = "count", position = position_dodge()) +
+  scale_x_discrete(labels = c("1", "2", "3", "4")) +
+  scale_fill_discrete(name = "Generation") +
+  labs(title = "Hopeful Level by Generation (Proportion)", 
+       x = "Hopeful Level (where 1 is rarely and 4 is most of the time)", 
+       y = "Count")
+```
+
+### Hopeful Model
+
+The model below estimates that as we move up in generation by 1, "hopeful level" increases by about 0.13746. However, a very low r-squared value suggests that the model is not very reliable.
+
+```{r model2}
+model2 = lm(as.numeric(HF044R8) ~ GEN_R, data = subset2)
+coef(model2)
+summary(model2)$r.squared
+AIC(model2)
+```
+
+Because we have more than one level in our response variable, hopeful level, a multinomial model may be more appropriate for this data. The multinomial model below shows a decrease in AIC of $4542.025 - 3973.039 = 568.986$, suggesting that the multinomial model is a better fit to the data. Our reference category for $Y$ is "(1) Rarely or None at All", thus, all $\beta_{ij}$ are being compared to rarely feeling hopeful. 
+
+```{r model2a, message = FALSE, warning = FALSE}
+model2a = multinom(HF044R8 ~ as.factor(GEN_R), data = subset2)
+summary(model2a)
+AIC(model2a)
+```
+
+The plot below describes the relationship between each of our hopeful levels and each generation. While there appears to be generally similar results across each generation, there is a slight peak in generation 1 in the "rarely or none of the time" category, and a slight peak in generation 4 in the "most or all of the time" category--this aligns with what we saw in the bar graph. 
+
+```{r plot2}
+plot_probsMultinom(x = subset2$GEN_R, model = model2a, xname = "GEN_R")
+```
+
+## Lonely
+
+The bar graph below shows how often individuals felt lonely by generation. It appears that most people felt lonely rarely, while the least people felt lonely most of the time. It also appears that in the lowest category of loneliness, generation 2 is the most prevalent, and in the highest 2 categories of loneliness, generation 1 is the most prevalent. 
+
+```{r plot-prop-lonely, warning = FALSE, message = FALSE}
+subset %>%
+filter(HF042R8 != '(9) Response not codable') %>% 
+ggplot(aes(x = HF050R8,  group = factor(GEN_R))) + 
+    geom_bar(aes(y = ..prop.., fill = factor(GEN_R)), stat = "count", position = position_dodge()) +
+  scale_x_discrete(labels = c("1", "2", "3", "4")) +
+  scale_fill_discrete(name = "Generation") +
+  labs(title = "Lonely Level by Generation (Proportion)", 
+       x = "Lonely Level (where 1 is rarely and 4 is most of the time)", 
+       y = "Count")
+```
+
+### Lonely Model
+
+The model below estimates that as we move up in generation by 1, "loneliness level" increases by about 0.026127. However, a very low r-squared value suggests that the model is not very reliable.
+
+```{r model3}
+model3 = lm(as.numeric(HF050R8) ~ GEN_R, data = subset2)
+coef(model3)
+summary(model3)$r.squared
+AIC(model3)
+```
+
+Because we have more than one level in our response variable, lonely level, a multinomial model may be more appropriate for this data. The multinomial model below shows a decrease in AIC of $4156.416 - 3377.517 = 778.899$, suggesting that the multinomial model is a better fit to the data. Our reference category for $Y$ is "(1) Rarely or None at All", thus, all $\beta_{ij}$ are being compared to rarely feeling lonely. 
+
+```{r model3a, message = FALSE, warning = FALSE}
+model3a = multinom(HF050R8 ~ as.factor(GEN_R), data = subset2)
+summary(model3a)
+AIC(model3a)
+```
+
+The plot below describes the relationship between each of our lonely levels and each generation. While there appears to be generally similar results across each generation, there is a slight peak in generation 2 in the "rarely or none of the time" category, and a slight peak in generation 1 in the "most or all of the time" and "moderate amount of time" categories--this aligns with what we saw in the bar graph. 
+
+```{r plot4, warning = FALSE, message = FALSE}
+plot_probsMultinom(x = subset2$GEN_R, model = model3a, xname = "GEN_R")
+```
+
+# Additional Exploratory Data Analysis: Relationships
+
+We have looked at how certain characteristics change through the generations--these characteristics being if an individual felt depressed, hopeful about the future, and/or lonely. Now, we want to explore the relationship between these characteristics and whether or not an individual gets a divorce. For now, we are going to include individuals who are "living with a partner as though married" and "married" in one category called **In Relationship**, and "stopped living with a partner as though married," "separated," and "divorced" in one category called **Broken Relationship**, and "single, never married," "widowed," and "UNDOCUMENTED CODE" will not be included. We are going to use the variable **BG011R8** on page 41 in the codebook.
+
+```{r subset2, warning = FALSE, message = FALSE}
+myVars2 <- c("HF042R8", "HF044R8", "HF050R8", "BG011R8")
+subset3 <- da22100.0002[myVars2] 
+subset3 <- na.omit(subset3)
+
+subset3 <- subset3 %>%
+filter(HF042R8 != '(9) Response not codable' & HF044R8 != '(9) Response not codable' & HF050R8 != '(9) Response not codable' & BG011R8 != '(7) Single, never married' & BG011R8 != '(9) UNDOCUMENTED CODE' & BG011R8 != '(4) Widowed')
+
+levels(subset3$BG011R8)[levels(subset3$BG011R8)=="(1) Married"] <-"In Relationship"
+levels(subset3$BG011R8)[levels(subset3$BG011R8)=="(5) Living with a partner as though married"] <-"In Relationship"
+levels(subset3$BG011R8)[levels(subset3$BG011R8)=="(6) Stopped living with a partner as though married"] <-"Broken Relationship"
+levels(subset3$BG011R8)[levels(subset3$BG011R8)=="(2) Separated"] <-"Broken Relationship"
+levels(subset3$BG011R8)[levels(subset3$BG011R8)=="(3) Divorced"] <-"Broken Relationship"
+# levels(subset3$BG011R8)[levels(subset3$BG011R8)=="(4) Widowed"] <-"Other"
+# levels(subset3$BG011R8)[levels(subset3$BG011R8)=="(7) Single, never married"] <-"Other"
+# levels(subset3$BG011R8)[levels(subset3$BG011R8)=="(9) UNDOCUMENTED CODE"] <-"Other"
+
+subset3$BG011R8 <- factor(subset3$BG011R8)
+```
+
+### Felt Depressed
+
+Let's start by looking at a bar chart that counts how many people are and are not in a relationship based on their response to feeling depressed. It appears that, in general, most people felt depressed rarely, while the least number of people felt depressed a moderate amount of time and most of the time. It also appears that among those who felt depressed rarely, a majority of them were in a relationship, while among those who felt depressed a moderate amount of time and most of the time, a majority of them had suffered a broken relationship.
+
+```{r plot-prop-divorce, warning = FALSE, message = FALSE}
+ggplot(data = subset3, aes(x = HF042R8,  group = factor(BG011R8))) + 
+    geom_bar(aes(y = ..prop.., fill = factor(BG011R8)), stat = "count", position = position_dodge()) +
+  scale_x_discrete(labels = c("1", "2", "3", "4")) +
+  scale_fill_discrete(name = "Relationship Status") +
+  labs(title = "Depression Level by Relationship Status (Proportion)", 
+       x = "Depression Level (where 1 is rarely and 4 is most of the time)", 
+       y = "Count")
+```
+
+### Depressed Model
+
+Because we have more than one level in our response variable, depressed level, we are going to bypass a linear regression model and attempt a multinomial model, which may be more appropriate for this data. Our reference category for $Y$ is "(1) Rarely or None at All", thus, all $\beta_{ij}$ are being compared to rarely feeling lonely. 
+
+The table below show the probabilities for each *depressed* level based on whether an individual is in a relationship or a broken relationship:  
+
+
+\begin{table}[!h]
+\begin{tabular}{l|l|l|l|l}
+                    & (1) & (2) & (3) & (4) \\
+In Relationship     & 0.616     & 0.299     & 0.063    & 0.022     \\
+Broken Relationship & 0.404     & 0.365    & 0.154     & 0.077     \\
+\end{tabular}
+\end{table}
+
+```{r model4, message = FALSE, warning = FALSE}
+library(nnet)
+
+model4 <- multinom(HF042R8 ~ as.factor(BG011R8), data = subset3)
+summary(model4)
+
+preds1 <- fitted(model4)
+preds1[1,]
+preds1[12,]
+```
+
+### Hopeful about the Future
+
+Let's start by looking at a bar chart that counts how many people are and are not in a relationship based on their response to feeling hopeful about the future. It appears that, in general, most people felt hopeful most of the time, while the least number of people felt hopeful rarely. It also appears that among those who felt hopeful rarely, a majority of them had suffered a broken relationship, while among those who felt hopeful most of the time, a majority of them were in a relationship.
+
+```{r plot-prop-divorce2, warning = FALSE, message = FALSE}
+ggplot(data = subset3, aes(x = HF044R8,  group = factor(BG011R8))) + 
+    geom_bar(aes(y = ..prop.., fill = factor(BG011R8)), stat = "count", position = position_dodge()) +
+  scale_x_discrete(labels = c("1", "2", "3", "4")) +
+  scale_fill_discrete(name = "Relationship Status") +
+  labs(title = "Hopeful Level by Relationship Status (Proportion)", 
+       x = "Hopeful Level (where 1 is rarely and 4 is most of the time)", 
+       y = "Count")
+```
+
+### Hopeful Model
+
+Because we have more than one level in our response variable, depressed level, we are going to bypass a linear regression model and attempt a multinomial model, which may be more appropriate for this data. Our reference category for $Y$ is "(1) Rarely or None at All", thus, all $\beta_{ij}$ are being compared to rarely feeling hopeful. 
+
+The table below show the probabilities for each *hopeful* level based on whether an individual is in a relationship or a broken relationship:  
+
+
+\begin{table}[!h]
+\begin{tabular}{l|l|l|l|l}
+                    & (1) & (2) & (3) & (4) \\
+In Relationship     & 0.050     & 0.114     & 0.310    & 0.527     \\
+Broken Relationship & 0.103     & 0.180    & 0.327     & 0.391     \\
+\end{tabular}
+\end{table}
+
+```{r model5, message = FALSE, warning = FALSE}
+model5 <- multinom(HF044R8 ~ as.factor(BG011R8), data = subset3)
+summary(model5)
+
+preds2 <- fitted(model5)
+preds2[1,]
+preds2[12,]
+```
+
+### Lonely 
+
+Let's start by looking at a bar chart that counts how many people are and are not in a relationship based on their response to feeling hopeful about the future. It appears that, in general, most people felt lonely rarely, while the least number of people felt lonely most of the time. It also appears that among those who felt hopeful rarely, a majority of them were in a relationship, while among those who felt hopeful most of the time, a majority of them suffered from a broken relationship.
+
+```{r plot-prop-divorce3, warning = FALSE, message = FALSE}
+ggplot(data = subset3, aes(x = HF050R8,  group = factor(BG011R8))) + 
+    geom_bar(aes(y = ..prop.., fill = factor(BG011R8)), stat = "count", position = position_dodge()) +
+  scale_x_discrete(labels = c("1", "2", "3", "4")) +
+  scale_fill_discrete(name = "Relationship Status") +
+  labs(title = "Lonely Level by Relationship Status (Proportion)", 
+       x = "Lonely Level (where 1 is rarely and 4 is most of the time)", 
+       y = "Count")
+```
+
+### Lonely Model
+
+Because we have more than one level in our response variable, depressed level, we are going to bypass a linear regression model and attempt a multinomial model, which may be more appropriate for this data. Our reference category for $Y$ is "(1) Rarely or None at All", thus, all $\beta_{ij}$ are being compared to rarely feeling lonely. 
+
+The table below show the probabilities for each *loneliness* level based on whether an individual is in a relationship or a broken relationship:  
+
+
+\begin{table}[!h]
+\begin{tabular}{l|l|l|l|l}
+                    & (1) & (2) & (3) & (4) \\
+In Relationship     & 0.705     & 0.217     & 0.058    & 0.020     \\
+Broken Relationship & 0.417     & 0.308    & 0.167     & 0.109     \\
+\end{tabular}
+\end{table}
+
+```{r model6, message = FALSE, warning = FALSE}
+library(nnet)
+
+exp(-1.177310 + 0.8741014)
+exp(-1.177310)
+
+model6 <- multinom(HF050R8 ~ as.factor(BG011R8), data = subset3)
+summary(model6)
+
+preds3 <- fitted(model6)
+preds3[1,]
+preds3[12,]
+```
