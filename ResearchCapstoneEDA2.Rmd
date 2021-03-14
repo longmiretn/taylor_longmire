@@ -1,0 +1,109 @@
+---
+title: "Senior Research - EDA 2"
+author: "Taylor Longmire"
+date: "3/14/2021"
+output: html_document
+---
+
+## Load Data and Packages
+
+```{r import-data, warning = FALSE, message = FALSE}
+load(file = "22100-0002-Data.rda")
+library(ggplot2)
+library(tidyverse)
+library(tidymodels)
+library(ISLR)
+library(rpart.plot)
+library(glmnet)
+```
+
+# Variables of Interest
+
+The three $X$ variables that we are examining are **HF042R8**, which corresponds to "Felt Depressed" (in the past week), **HF044R8**, which corresponds to "Hopeful About the Future" (in the past week), and **HF050R8**, which corresponds to "Lonely" (in the past week). These variables can be found on pages 135, 136, and 139 in the Codebook. 
+
+The $Y$ variable we are interested in is ***BG011R8**, which corresponds to marital status, on page 41 in the Codebook. We are going to mutate this variable to be binary, where individuals who are "living with a partner as though married" and "married" are called **In Relationship**, and "stopped living with a partner as though married," "separated," and "divorced" are called **Broken Relationship**, and "single, never married," "widowed," and "UNDOCUMENTED CODE" will not be included.
+
+```{r subset, warning = FALSE, message = FALSE}
+myVars <- c("HF042R8", "HF044R8", "HF050R8", "BG011R8", "GEN_R")
+subset <- da22100.0002[myVars] 
+subset <- na.omit(subset)
+
+subset <- subset %>%
+filter(HF042R8 != '(9) Response not codable' & HF044R8 != '(9) Response not codable' & HF050R8 != '(9) Response not codable' & BG011R8 != '(7) Single, never married' & BG011R8 != '(9) UNDOCUMENTED CODE' & BG011R8 != '(4) Widowed')
+
+levels(subset$BG011R8)[levels(subset$BG011R8)=="(1) Married"] <-"In Relationship"
+levels(subset$BG011R8)[levels(subset$BG011R8)=="(5) Living with a partner as though married"] <-"In Relationship"
+levels(subset$BG011R8)[levels(subset$BG011R8)=="(6) Stopped living with a partner as though married"] <-"Broken Relationship"
+levels(subset$BG011R8)[levels(subset$BG011R8)=="(2) Separated"] <-"Broken Relationship"
+levels(subset$BG011R8)[levels(subset$BG011R8)=="(3) Divorced"] <-"Broken Relationship"
+
+subset$BG011R8 <- factor(subset$BG011R8)
+
+subset <- subset %>%
+  rename(
+    Depressed = HF042R8,
+    Lonely = HF050R8,
+    Hopeful = HF044R8,
+    Relationship = BG011R8
+  )
+```
+
+# Basic Logistic Model
+
+Before diving into any more complex models, let's first look at a basic logisitc regression model, with our binary variable, "Relationship" being our response variable, and our factored variables, "Depressed", "Lonely", and "Hopeful" being our explanatory variables. 
+
+```{r logistic, warning = FALSE, message = FALSE}
+log_mod <- glm(Relationship ~ Depressed + Lonely + Hopeful, data = subset, family = "binomial")
+coef(log_mod)
+```
+
+Just to look at two examples, this tells us that the log odds of being depressed most or all of the time, compared to rarely or none of the time increases by 0.589 when in a broken relationship rather than in a relationship. This also tells us that the log odds of being hopeful most or all of the time decreases by 0.588 when in a broken relationship rather than in a relationship. 
+
+# Decision Tree
+
+Now, to try and visual the relationship between relationship and our predictors better, we are going to fit a classification decision tree.
+
+```{r tree, warning = FALSE, message = FALSE}
+subset_cv <- vfold_cv(subset, v = 5)
+
+tree_spec <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = 10,
+  mode = "classification") %>%
+  set_engine("rpart")
+
+grid <- expand_grid(cost_complexity = seq(0.01, 0.05, by = 0.01))
+model <- tune_grid(tree_spec,
+                   Relationship ~ .,
+                   grid = grid,
+                   resamples = subset_cv,
+                   metrics = metric_set(gain_capture, accuracy))
+
+best <- model %>%
+  select_best(metric = "gain_capture") %>%
+  pull()
+
+final_spec <- decision_tree(
+  cost_complexity = best, 
+  tree_depth = 3,
+  mode = "classification") %>% 
+  set_engine("rpart")
+final_model <- fit(final_spec,
+                   Relationship ~ .,
+                   data = subset)
+
+rpart.plot(final_model$fit,
+           roundint = FALSE)
+
+final_model %>%
+  predict(new_data = subset) %>%
+  bind_cols(subset) %>%
+  conf_mat(truth = Relationship, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+```
+
+After building our decision tree, one thing that is clear is that there is a much higher chance overall that individuals are in a relationship than a broken relationship. Thus, it may be difficult to draw accurate predictions due to the small number of individuals who are actually in a broken relationship. However, at least based on the model that we do have, $1271 + 8 = 1279$ were predicted correctly, while $148 + 5 = 153$ were predicted incorrectly. This leaves us with a classification error rate of $\frac{153}{1432} \times 100 = 10.68$%. While this seems very good, it may simply be due to the very small number of individuals who are actually in a broken relationship.  
+
+```{r table}
+knitr::kable(table(subset$GEN_R, subset$Relationship))
+```
