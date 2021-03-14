@@ -1,0 +1,369 @@
+---
+title: "Multinomial Regression"
+author: "Taylor Longmire"
+date: "3/14/2021"
+output: html_document
+---
+
+```{r import-data, echo = FALSE, message = FALSE, warning = FALSE}
+library(readr)
+library(ggplot2)
+library(kableExtra)
+library(tidyverse)
+Earthquake <- read_csv("Earthquake.csv")
+library(nnet)
+```
+
+# EDA: Damage
+
+### Question 1
+
+*Does R currently think Damage is categorical (factor) or a string variable (character)?*
+
+R currently thinks that the *Damage* variable in the Earthquake data set is a **string** variable, or a character variable.
+
+```{r variable, echo = FALSE, eval = FALSE}
+class(Earthquake$Damage)
+```
+
+### Question 2
+
+*Make an appropriate graph and a professionally formatted table to explore the response variable. What percent of the buildings in this data were in each damage category?*
+
+The bar graph below (Figure 1) shows the relative counts for the moderate, none, and severe levels of the *Damage* variable, making it clear that the highest number of cases occur in the "moderate" category. The table below (Table 1) shows the exact counts in each category. Based on these counts, we can compute the percentage of buildings that were in each category.
+
+$$ModPercent = \frac{147,437}{147,437 + 24,945 + 86,829} = \frac{147,437}{259,211}\times100=56.88\%$$
+$$NonePercent = \frac{24,945}{147,437 + 24,945 + 86,829} = \frac{24,945}{259,211}\times100=9.62\%$$
+$$SevPercent = \frac{86,829}{147,437 + 24,945 + 86,829} = \frac{86,829}{259,211}\times100=33.50\%$$
+Thus, the percent of buildings in the *moderate* category was **56.88%**, the percent of buildings in the *none* category was **9.62%**, and the percent of buildings in the *severe* category was **33.50%**. 
+
+```{r visualize-data, echo = FALSE, eval = TRUE}
+Earthquake$Damage <- factor(Earthquake$Damage)
+
+ggplot(data = Earthquake, aes(x = Damage)) +
+  geom_bar(fill = c("skyblue3", "skyblue1", "skyblue4")) +
+  labs(title = "Figure 1: Damage Levels Counts", x = "Damage", y = "Counts") +
+  theme_light()
+
+knitr::kable(table(Earthquake$Damage), col.names = c("Damage Level", "Count"), 
+             caption = "Damage Level Counts")
+```
+
+```{r calc, echo = FALSE, eval = FALSE}
+147437+24945+86829
+(147437/259211)*100
+(24945/259211)*100
+(86829/259211)*100
+```
+
+### Question 3
+
+*What level does R currently think is the baseline?*
+
+R currently thinks that the **moderate** category is the baseline for the *Damage* variable.
+
+```{r levels, echo = FALSE, eval = FALSE}
+levels(Earthquake$Damage)
+```
+
+### Question 4
+
+*What level do you think we should use for the baseline? If necessary, use code to tell R that this is the level you want for the baseline.*
+
+Because we generally want the largest category to be the baseline, and the largest category in our data set, with **56.88%** of the buildings, is *moderate*, I think that we should leave *moderate* as the baseline level. 
+
+### Question 5
+
+*Write down Step 1 of the parametric model building process for these data.*
+
+Because our $Y_i$ for these data is a categorial variable with 3 possible levels (therefore non-binary), we can say that a reasonable distribution for these data is:
+
+$$Y_i \sim Categorical(\pi_{i(moderate)}, \pi_{i(none)}, \pi_{i(severe)})$$
+
+# EDA: Damage
+
+### Question 6
+
+*Create a plot to explore the relationship between age and damage.*
+
+The boxplot below (Figure 2) shows that there are many outliers in each of the *Damage* categories, making it difficult to discern the difference between levels. However, in general, it appears that buildings that sustained no damage were generally younger in age, while building that sustained moderate and severe damage were generally older in age. 
+
+```{r epirlogit plot, echo = FALSE}
+ggplot(data = Earthquake, aes(x = age, y = Damage)) +
+  geom_boxplot(fill = c("skyblue3", "skyblue1", "skyblue4")) +
+  labs(title = "Figure 2: Damage Levels by Age", x = "Age", y = "Damage") +
+  theme_light()
+```
+
+### Question 7
+
+*Create a plot to explore the relationship between age and the log relative risk of no damage vs. moderate.*
+
+```{r function, echo = FALSE}
+get_logRR <- function(xvar , yvar, level, baseline, xname, bins ){
+  nbins <- length(bins)
+  probs.each <-NULL
+  
+  for(i in 1:nbins){
+    if( i < nbins){
+    scores.in <- which(xvar< bins[i+1] & xvar >= bins[i])
+  } else{ 
+    scores.in <- which(xvar> bins[i])
+    }
+    numerator  <- length(which(yvar[scores.in]==level))
+    denominator      <- length(which(yvar[scores.in]==baseline))
+    probs.each <- c(probs.each,ifelse(numerator>0 & denominator>0,
+                                      numerator/denominator,0))
+  }
+  
+  log.RR.each <- log(probs.each)
+  
+  log.RR.each
+  
+}
+```
+
+```{r plot, echo = FALSE}
+mybins <- seq(from = 0, to = 120, by = 10)
+logRR <- get_logRR(xvar = Earthquake$age, yvar = Earthquake$Damage, 
+                   level = "none", baseline = "moderate", xname = "age", 
+                   bins = mybins)
+
+ggplot(data.frame(mybins, logRR), aes(x = mybins, y = logRR)) + 
+  geom_point() +
+  labs(title = "Figure 3: Age vs. Log RR of None vs. Moderate", x = "Age", 
+       y = "Log RR: None vs. Moderate") +
+  theme_light()
+```
+
+### Question 8
+
+*Repeat the process, but this time using the relationship between age and the log relative risk of severe vs. moderate.*
+
+```{r plot2, echo = FALSE}
+logRR2 <- get_logRR(xvar = Earthquake$age, yvar = Earthquake$Damage, 
+                   level = "severe", baseline = "moderate", xname = "age", 
+                   bins = mybins)
+
+ggplot(data.frame(mybins, logRR2), aes(x = mybins, y = logRR2)) + 
+  geom_point() +
+  labs(title = "Figure 4: Age vs. Log RR of Severe vs. Moderate", x = "Age", 
+       y = "Log RR: Severe vs. Moderate") +
+  theme_light()
+```
+
+### Question 9
+
+*Add a second order polynomial to both graphs.*
+
+```{r plots3, echo = FALSE}
+ggplot(data.frame(mybins, logRR), aes(x = mybins, y = logRR)) + 
+  geom_point() +
+  stat_smooth(method = "lm", formula = y ~ poly(x,2), size = 1) +
+  labs(title = "Figure 5: Age vs. Log RR of None vs. Moderate with Polynomial", 
+       x = "Age", y = "Log RR: None vs. Moderate") +
+  theme_light()
+
+ggplot(data.frame(mybins, logRR2), aes(x = mybins, y = logRR2)) + 
+  geom_point() +
+  stat_smooth(method = "lm", formula = y ~ poly(x,2), size = 1) +
+  labs(title = "Figure 6: Age vs. Log RR of Severe vs. Moderate with Polynomial",
+       x = "Age", y = "Log RR: Severe vs. Moderate") +
+  theme_light()
+```
+
+# Mathematical Notaion in Markdown
+
+### Question 10
+
+*Based on the transformation I suggested for Age, write down Step 1 and Step 2 for building a parametric model for damage grade. This should be the population model.*
+
+**Step 1: Choose a Reasonable Distribution for $Y_i$**:  
+
+$$Y_i \sim Cat(\pi_{i(moderate)}, \pi_{i(none)}, \pi_{i(severe)})$$
+
+**Step 2: Choose a Model for Any Parameters**:
+
+$$log \left(\frac{\pi_{i(none)}}{\pi_{i(moderate)}} \right) = \beta_{0(none)} + \beta_{1(none)}Age_i + \beta_{2(none)}Age_i^{2}$$
+
+$$log \left(\frac{\pi_{i(severe)}}{\pi_{i(moderate)}} \right) = \beta_{0(severe)} + \beta_{1(severe)}Age_i + \beta_{2(severe)}Age_i^{2}$$
+
+# The Regression Lines
+
+### Question 11
+
+*Fit the model you have chosen. Call this model M1. Write down the fitted regression line(s) using appropriate notation.*
+
+```{r fit-model, echo = FALSE, include = FALSE}
+M1 <- multinom(Damage ~ age + I(age^2), data = Earthquake)
+coef(M1)
+```
+
+$$log \left(\frac{\pi_{i(none)}}{\pi_{i(moderate)}} \right) = -0.74658 - 0.08041Age_i + 0.00039Age_i^{2}$$
+$$log \left(\frac{\pi_{i(severe)}}{\pi_{i(moderate)}} \right) = -0.71279 + 0.01200Age_i - 0.00010Age_i^{2}$$
+
+### Question 12
+
+*What is the predicted log relative risk of having severe damage vs moderate damage for a building that is 100 years old?*
+
+To find the predicted log relative risk of having severe damage vs. moderate damage for a building that is 100 years old, we will use our severe vs. moderate regression line and plug in $age = 100$. 
+
+$$log \left(\frac{\pi_{i(severe)}}{\pi_{i(moderate)}} \right) = -0.71279 + 0.01200(100) - 0.00010(100)^{2} = -0.51279$$
+
+Thus, the predicted log relative risk of having severe damage vs moderate damage for a building that is 100 years old is **-0.51279**.
+
+```{r calc-svm, echo = FALSE, eval = FALSE}
+-0.71279+(0.012*100)-(0.0001*(100^2))
+```
+
+### Question 13
+
+*Fill in the blanks: For a building that is 100 years old, the predicted probability of having severe damage is BLANK1 times the predicted probability of having moderate damage. In other words, we predict that the probability of having moderate damage is BLANK2 (more/less) than the probability of having severe damage for an 100 year old building.*
+
+BLANK1 = $e^{-0.51279} = 0.5988$  
+
+BLANK2 = more  
+
+
+Thus, the full statement would read: For a building that is 100 years old, the predicted probability of having severe damage is **0.5988** times the predicted probability of having moderate damage. In other words, we predict that the probability of having moderate damage is **more** than the probability of having severe damage for an 100 year old building.
+
+```{r calc-prob, echo = FALSE, eval = FALSE}
+exp(-0.51279)
+```
+
+# Describing the Relationship
+
+### Question 14
+
+*Create a plot using plot_probsMultinom. Based on the plot, describe how the probabilities of each damage category change with age (roughly one sentence per category).*
+
+For buildings within the *moderate* damage category, there is a general increase in predicted probability of moderate damage as age increases, with a slight decrease in probability occurring around age 175. For buildings within the *none* damage category, there is a general concave-up parabola shape in predicted probability of no damage as age increases, with the general probability decreasing between age 0 and 50, remaining static from age 50 to 150, and increasing from age 150 to 200. For buildings within the *severe* damage category, there is a general concave-down parabola shape in predicted probability of severe damage as age increases, with the general probability increasing between age 0 and 62, and decreasing between age 62 and 200. 
+
+```{r plot-probs, echo = FALSE}
+plot_probsMultinom <- function(xvar, model, xname ){
+  xpart <- data.frame(c(unique(xvar)))
+  names(xpart) <- xname
+  pp.xpart <- cbind(xpart, predict(model, newdata = xpart, 
+                                   type = "probs", se = TRUE))
+  library(reshape2)
+  lpp <- melt(pp.xpart, id.vars = c(xname), value.name = "probability")
+  ggplot(lpp, aes(x = lpp[,1], y = probability)) + 
+    geom_line(color = "skyblue4") + 
+    facet_grid(variable~., scales = "free") + 
+    theme(axis.text=element_text(size=14), axis.title=element_text(size=14), 
+          legend.title = element_text(size = 14), 
+          legend.text = element_text(size = 14))+ylim(0,1) + 
+    theme_light()
+  
+}
+```
+
+```{r plot-probs1, echo = FALSE, warning = FALSE, message = FALSE}
+plot_probsMultinom(xvar = Earthquake$age, model = M1, xname = "age") +
+  labs(title = "Figure 7: Predicted Probabilities: Age vs. Damage Level",
+       x = "Age", y = "Predicted Probability")
+```
+
+### Question 15
+
+*What is the percent drop in deviance for your model?*
+
+To find the drop in deviance for the model created, we need to subtract the deviance of our model from the deviance of the null model:
+
+$$dropDev = devNull - devM1 = 473,101.1 - 457,637.6 = 15,463.53$$
+Thus, the drop in deviance for our model is 15,463.53.
+
+Now, to determine what our percent drop in deviance is, we write:
+
+$$ \%dropDev = \frac{15463.53}{473101.1} \times 100= 3.27\%$$
+
+Thus, the percent drop in deviance for our model is **3.27%**.
+
+```{r drop-dev, echo = FALSE, eval = FALSE}
+modelNull <- multinom(Damage~1, data = Earthquake)
+deviance(modelNull)
+deviance(M1)
+deviance(modelNull) - deviance(M1)
+(15463.53/473101.1)*100
+```
+
+# Classification Error Rate
+
+### Question 16
+
+*Create a confusion matrix by using the code above. State your classification error rate.*
+
+Based on the table below, the amount of incorrect predictions was: $24,945 + 86,829 = 111,774$, thus the classification error rate is:
+
+$$\frac{111,774}{259,211} \times 100= 43.12\%$$
+
+```{r cer, echo = FALSE}
+set.seed(7)
+table("Actual" = Earthquake$Damage , "Predictions" = predict(M1))
+```
+
+```{r calc-cer, echo = FALSE, eval = FALSE}
+24945+86829
+24945+86829+147437
+(111774/259211)*100
+```
+
+# Using Multiple Predictors
+
+### Question 17
+
+*Now, you are going to consider including two more predictors in your model. Look at the list of the predictors and choose two you think might be related to damage during an earthquake (there are no wrong choices). State which variables you choose.*
+
+Two variables that I believe may be related to the level of damage a building sustains is **roof type** (roof_type) and **foundation type** (foundation_type). Both of these variables are categorical, with the levels of roof type being: "n", "q", and "x", and the levels of foundation being "h", "i", "r", "u", and "w".
+
+```{r levels2, echo = FALSE, eval = FALSE}
+Earthquake$roof_type <- factor(Earthquake$roof_type)
+Earthquake$foundation_type <- factor(Earthquake$foundation_type)
+
+levels(Earthquake$roof_type)
+levels(Earthquake$foundation_type)
+```
+
+### Question 18
+
+*Fit a model M2 using age and your newly chosen predictors. Create a confusion matrix and compute a classification error rate.*
+
+Based on the table below, the amount of incorrect predictions was: $4,125 + 106 + 18,753 + 155 + 86,441 + 248 = 109,828$, thus the classification error rate is:
+
+$$\frac{109,828}{259,211} \times 100= 42.37\%$$
+
+```{r fit-model-2, echo = FALSE, include = FALSE}
+M2 <- multinom(Damage ~ age + I(age^2) + roof_type + foundation_type, data = Earthquake)
+```
+
+```{r cer-table2, echo = FALSE}
+set.seed(7)
+table("Actual" = Earthquake$Damage , "Predictions" = predict(M2))
+```
+
+```{r calc-cer-2, echo = FALSE, eval = FALSE}
+4125+106+18753+155+86441+248
+(109828/259211)*100
+```
+
+### Question 19
+
+*Use an appropriate metric to compare M1 and M2. Comment on which model you would prefer to use for our given task and why.*
+
+The AIC for model 1, which uses only age as a predictor, is 457,649.6, while the AIC for model 2, which uses age, foundation type, and roof type as predictors, is 428,019.8. Thus, since the AIC for model 2 is smaller than the AIC for model 1, the preferred model for our task is **model 2**.
+
+If we want to examine the BIC instead, we still find model 2 to be a better model for predicting damage than model 1. 
+
+```{r AIC, echo = FALSE, eval = FALSE}
+AIC(M1)
+AIC(M2)
+BIC(M1)
+BIC(M2)
+```
+
+
+
+## Code Appendix
+
+```{r ref.label = knitr::all_labels(), echo = TRUE, eval = FALSE}
+```
